@@ -1,0 +1,113 @@
+#! /usr/bin/env python3
+
+from sys import exit, stderr, stdout
+import argparse
+import gzip
+
+
+class Bed:
+    __slots__ = ["chrom", "start", "end", "signal"]
+
+    def __init__(self, chrom, start, end, signal):
+        self.chrom = chrom
+        self.start = int(start)
+        self.end = int(end)
+        self.signal = float(signal)
+
+    @property
+    def len(self):
+        return self.end - self.start
+
+    def __str__(self):
+        return "\t".join(
+            [str(x) for x in [self.chrom, self.start, self.end, self.signal]]
+        )
+
+
+def is_gzip(f):
+    return f.endswith(".gz")
+
+
+def open_bedgraph(f):
+    return gzip.open(f) if is_gzip(f) else open(f)
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        prog="normalize_bedgraph",
+        description="""Normalize the signal in a bedgraph (.bdg) file.""",
+    )
+
+    parser.add_argument("bedgraph", action="store", help="Path to the bedgraph file.")
+
+    parser.add_argument(
+        "--read-length",
+        action="store",
+        required=True,
+        type=int,
+        help="""If normalizing to a given library size, assume this read
+            length (otherwise, inferred from the bedgraph file). Ignored if
+            --to-mean-signal is passed.""",
+    )
+
+    parser.add_argument(
+        "--to-mean-signal",
+        action="store",
+        type=float,
+        help="""Normalize the bedgraph such that the average signal per
+                nucleotide is equal to this value.""",
+    )
+
+    parser.add_argument(
+        "--to-number-reads",
+        action="store",
+        type=int,
+        help="""Normalize the bedgraph to a given number of reads. This is
+                useful if you are trying to keep the signal scale meaningful.
+                Assumes that a signal value of 1.0 corresponds to a single read. To
+                do this, the read length must be known. This can be passed manually
+                    (--read-length), or inferred from the bedgraph. Ignored if
+                    --to-mean-signal is passed.""",
+    )
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_arguments()
+
+    if not (args.to_mean_signal or args.to_number_reads):
+        stderr.write("ERROR: Must supply --to-mean-signal or --to-number-reads.\n")
+        exit()
+
+    total_signal = 0
+    total_bases = 0
+
+    with open_bedgraph(args.bedgraph) as b:
+        for line in b:
+            element = Bed(*[x.strip() for x in line.rstrip().split()])
+            total_signal += element.len * element.signal
+            total_bases += element.len
+
+    stderr.write(
+        "Current average signal per base: {}\n".format(total_signal / total_bases)
+    )
+
+    normalization_factor = None
+
+    if args.to_mean_signal:
+        normalization_factor = args.to_mean_signal / (total_signal / total_bases)
+    elif args.to_number_reads:
+        read_length = args.read_length
+
+    number_reads = round(total_signal / read_length)
+    stderr.write("Number of reads detected: {}\n".format(number_reads))
+    normalization_factor = args.to_number_reads / number_reads
+
+    stderr.write("Normalization factor: {}\n".format(normalization_factor))
+
+    with open_bedgraph(args.bedgraph) as b:
+        for line in b:
+            element = Bed(*[x.strip() for x in line.rstrip().split()])
+            element.signal = element.signal * normalization_factor
+            print(element)

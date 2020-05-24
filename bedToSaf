@@ -1,0 +1,21 @@
+#! /bin/bash
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPLv3, Parker Lab
+#
+# July 30, 2018
+#
+
+[[ $1 == "-h" ]] \
+  && echo "Usage: bed2saf <BED-file>\nWrites to STDOUT." \
+  && exit
+
+[[ ! -e $1  && $1 ]] \
+  && echo "(bed2saf) ERROR: File does not exist." \
+  && exit 1
+
+echo "(bed2saf) INFO: Reading from STDIN" >&2
+
+#sort -k1,1 -k2,2n |
+cat $1 | awk -v OFS="\t" 'BEGIN {print "GeneID","Chr","Start","End","Strand"} { print "Peak_"NR,$1,$2+1,$3,"."}'

@@ -1,0 +1,17 @@
+#! /bin/bash
+
+[[ $# -ne 2 ]] && echo "USAGE: <PROG> [bdg-file] [macs2-log-file]" \
+               && echo "Normalizes to 10M library size and sorts the output." \
+               && exit 1
+
+PROG=cat
+
+if [[ $1 =~ \.gz$  ]]; then
+  PROG=zcat
+fi
+
+$PROG $1 \
+  | awk -v NTAGS=$(grep 'total tags in treatment' $2 | awk '{print $NF}') '{$4=$4*(10000000/NTAGS); print}' \
+  | perl -pe 's/\s+/\t/g; s/$/\n/' \
+  | (grep -v '_' || true) \
+  | LC_COLLATE=C sort -k1,1 -k2,2n

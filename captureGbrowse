@@ -1,0 +1,78 @@
+#! /usr/bin/ruby
+
+# TheParkerLab
+# Vivek Rai
+# GPLv3
+#
+# August ??, 2018
+
+
+require 'optparse'
+require 'ostruct'
+
+
+options = OpenStruct.new
+
+options.png = false
+
+parseargs = OptionParser.new do |opts|
+  opts.version = 1.0
+
+  opts.banner = <<~BANNER
+
+  USAGE: gbrowse_capture [URL] [options] (requires cURL)
+
+  Download PDF from UCSC Genome Browser for the corresponding URL. Simply copy
+  and paste the URL corresponding to current view of your Genome Browser
+  session.
+
+  Optionally convert the output to `PNG` (requires convert).
+
+  See -h or --help for more options.
+
+  BANNER
+
+  opts.on('-o', '--output', "=FILE", :REQUIRED,  "Output File") do |a|
+    options.out = a
+    options.prefix = File.basename(a, File.extname(a))
+  end
+
+  opts.on('--png', "Convert to PNG? (--output must be specified)") do |v|
+    options.png = v
+  end
+
+  opts.on_tail("-h", "--help", "Show this message") do
+    puts opts
+    exit
+  end
+end
+
+pargs = parseargs.parse!
+
+url = pargs.first || nil
+
+unless url
+  parseargs.parse('-h')
+end
+
+STDERR.syswrite "Rendering Genome Browser PDF.."
+
+hgsid = url.split('=').last
+
+# Retrieve the URI of rendered PDF from the UCSC Genome Browser website and
+# downloade silently using cURL.
+#
+# Each Genome Browser Session has an unique `hgsid`.
+COMMAND = <<-CMD
+ curl -s 'https://genome.ucsc.edu/cgi-bin/hgTracks?hgsid=#{hgsid}&hgt.psOutput=on' \
+  | grep -Eo 'hgt_genome_.*.pdf'                                                   \
+  | xargs -I{} curl -s -o #{options.out} 'https://genome.ucsc.edu/trash/hgt/{}'
+CMD
+
+STDOUT.syswrite `#{COMMAND}`
+
+# Convert to high quality PNG;
+if options.out and options.png
+  STDERR.syswrite "Converting to PNG.."
+  `which convert && convert -density 600 -quality 100 -flatten -trim #{options.out} #{options.prefix}.png`
+end

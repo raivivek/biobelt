@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Hold all jobs of a user that are currently in the pending state. Any jobs
+# that are running or in one of the completing states are ignored.
+#
+# Sudo privileges are required if the user running this script is not the same
+# as the user whose jobs are to be held.
+
+usage()
+{
+  echo "Usage: $(basename $0) user-name action"
+  echo "       If action starts with h or H then hold jobs."
+  echo "       If action starts with r or R then release jobs."
+  echo "       Requires sudo if user running script is different than user whose jobs are to be held or released."
+}
+
+user=${1}
+action=${2}
+
+errors=0
+if [[ -z "$user" ]]; then
+  echo "No user name specified."
+  (( ++errors ))
+fi
+
+if [[ -z "$action" ]]; then
+  echo "No action specified."
+  (( ++errors ))
+fi
+
+if (( errors > 0 )); then
+  usage
+  exit 1
+fi
+
+case $action in
+  [hH]*)
+    action="hold"
+    ;;
+  [rR]*)
+    action="release"
+    ;;
+  *)
+    echo "Action '$action' is not valid."
+    usage
+    exit 1
+esac
+
+# Use process substitution (done < <...) instead of piping the output of squeue
+# into the while loop. Otherwise the value of jobCount won't be available
+# outside the loop.
+jobCount=0
+while read -r jobid
+do
+  if [[ $jobid =~ '\[' ]]; then
+    # This is probably for a job array. Get the array id without the range
+    # of array elements.
+    jobid=${jobid%%_*}
+  fi
+
+  scontrol $action $jobid
+  (( jobCount++ ))
+done < <(squeue -u $user -t PD --format "%i" --noheader)
+
+if [[ $action == "hold" ]]; then
+  echo "$jobCount jobs held"
+else
+  echo "$jobCount jobs released"
+fi

@@ -1,0 +1,142 @@
+#! /usr/bin/env python3
+
+# Vivek Rai
+# vivekrai@umich.edu
+# The Parker Lab
+#
+# Updated: Oct 16, 2018
+# GPLv3
+
+
+__description__ = """Generate a GREGOR config file using supplied options."""
+
+
+import os
+import sys
+import glob
+import argparse
+from sys import stderr
+
+
+def create_index_bed(bedfilename, annotfiles, annotdir):
+    if os.path.exists(bedfilename):
+        print("File already exists, so will not overwite.", file=stderr)
+        return
+
+    with open(bedfilename, "w") as f:
+        if annotfiles is not None:
+            for bed_file in annotfiles:
+                f.write("{path}\n".format(path=os.path.abspath(bed_file)))
+        elif annotdir is not None:
+            for bed_file in glob.glob(os.path.join(annotdir + "*.bed")):
+                f.write("{path}\n".format(path=os.path.abspath(bed_file)))
+        else:
+            print("No suitable config found for creating `indexbed.txt`", file=stderr)
+
+
+def getopts():
+    parser = argparse.ArgumentParser(description=__description__)
+    group = parser.add_mutually_exclusive_group()
+
+    parser.add_argument(
+        "--outfile",
+        type=str,
+        default="gregor.conf",
+        help="""Name of output .conf file""",
+    )
+
+    # User must either supply "annotfiles" or a "directory with annotation files".
+    # Use argparse's group to implement this.
+    group.add_argument(
+        "--annotfiles",
+        nargs="+",
+        type=str,
+        help="""File with paths of annotation files to calculate enrichment in.""",
+    )
+    group.add_argument(
+        "--annotdir",
+        type=str,
+        help="""The directory with (unzipped) bed files if --annotfiles are not
+        specified. Will take all .bed files in this directory""",
+    )
+
+    parser.add_argument(
+        "--indexbed",
+        type=str,
+        default="indexbed.txt",
+        help="""Name of file to be created with paths of annotfiles""",
+    )
+    parser.add_argument(
+        "--snpfile",
+        type=str,
+        help="""chr:pos formatted SNP files. Filename *MUST* not contain `_`""",
+    )
+    parser.add_argument(
+        "--refdir",
+        type=str,
+        default="/lab/data/sw/GREGOR/1.4.0/0.7",
+        help="""GREGOR reference. (default: /lab/data/sw/GREGOR/1.4.0/0.7)""",
+    )
+    parser.add_argument(
+        "--population", type=str, default="EUR", help="""Population (default: EUR)"""
+    )
+    parser.add_argument(
+        "-r2",
+        "--gregorR2Threshold",
+        default="0.8",
+        help="""Minimum LD r2 for proxy SNPs (default: 0.8)""",
+    )
+    parser.add_argument(
+        "--ldwindow",
+        type=int,
+        default=1000000,
+        help="""Minimum LD r2 for proxy SNPs (default: 0.8)""",
+    )
+    parser.add_argument(
+        "-d", "--outdir", type=str, help="""Name of the output directory"""
+    )
+    parser.add_argument(
+        "--neighbor", type=int, default=500, help="""Min neighbors for GREGOR"""
+    )
+    parser.add_argument(
+        "--issorted",
+        type=str,
+        default="true",
+        help="""true or false if bed files are sorted""",
+    )
+    parser.add_argument("--topnbed", type=int, default=2, help="""Top n bed""")
+    parser.add_argument(
+        "--cores",
+        type=str,
+        default="6",
+        help="""Number of cores for each GREGOR job. (default: 6)""",
+    )
+    parser.add_argument(
+        "--batchtype",
+        type=str,
+        default="local",
+        help="""Batch job submission type (default: local)""",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    parser = getopts()
+    args = parser.parse_args()
+
+    args.indexbed = os.path.abspath(args.indexbed)
+    create_index_bed(args.indexbed, args.annotfiles, args.annotdir)
+
+    with open(args.outfile, "w") as f:
+        f.write("INDEX_SNP_FILE = {} \n".format(args.snpfile))
+        f.write("BED_FILE_INDEX = {} \n".format(args.indexbed))
+        f.write("REF_DIR = {} \n".format(args.refdir))
+        f.write("POPULATION = {} \n".format(args.population))
+        f.write("R2THRESHOLD = {} \n".format(args.gregorR2Threshold))
+        f.write("LDWINDOWSIZE = {} \n".format(args.ldwindow))
+        f.write("OUT_DIR = {} \n".format(args.outdir))
+        f.write("MIN_NEIGHBOR_NUM = {} \n".format(args.neighbor))
+        f.write("BEDFILE_IS_SORTED = {} \n".format(args.issorted))
+        f.write("TOPNBEDFILES = {} \n".format(args.topnbed))
+        f.write("JOBNUMBER = {} \n".format(args.cores))
+        f.write("BATCHTYPE = {} \n".format(args.batchtype))

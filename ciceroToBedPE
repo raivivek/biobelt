@@ -1,0 +1,57 @@
+#! /usr/bin/env python3
+#
+# Vivek Rai
+# mail@raivivek.in
+# (c) Parker Lab
+#
+# Jul 8, 2019
+# GPLv3
+
+
+import docopt
+import sys
+import signal
+import pathlib
+
+doc = """
+    ciceroToBedPE.
+
+    Prints to STDOUT.
+
+    Usage: ciceroToBedPE <cicero>
+
+    Options:
+    <cicero>        Cicero output file
+    -h, --help      Show help
+"""
+
+
+def convert_to_bedpe(cicero):
+    # conns = dict()
+    with open(cicero, "r") as f:
+        for line in f:
+            loop1, loop2, score = line.split("\t")
+            tab = "\t"
+            sys.stdout.write(
+                f"{tab.join(loop1.split('_'))}"
+                "\t"
+                f"{tab.join(loop2.split('_'))}"
+                "\tLoop\t"
+                f"{score}"
+            )
+
+
+if __name__ == "__main__":
+    # Register SIGNIT handler for graceful exit
+    # See: https://stackoverflow.com/questions/4205317
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+
+    opts = docopt.docopt(doc, version="0.1.0")
+    cicero_path = pathlib.Path(opts["<cicero>"])
+
+    # Exit early if the path does not exist
+    if not cicero_path.exists():
+        print("Error: File not found. Exit", file=sys.stderr)
+        sys.exit(1)
+
+    convert_to_bedpe(cicero_path)

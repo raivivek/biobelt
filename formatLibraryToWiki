@@ -1,0 +1,49 @@
+#! /usr/bin/env python3
+
+import yaml
+import sys
+import os
+import docopt
+
+doc = """
+formatToWiki
+
+Creates a Wiki table using the information in library info file.
+
+Usage:
+    formatToWiki <file>
+
+Options:
+    <file>        Library info YAML file
+    -h, --help    Show help
+"""
+
+
+def format_to_wiki(content):
+    lines = []
+    lines.append("{| class='sortable'")
+    lines.append("|-\n!Library Name")
+    lines.append("!Reference genome")
+    lines.append("!Description")
+    for library, value in content["libraries"].items():
+        lines.append("|-")
+        lines.append(f"|{library}")
+        lines.append(f"|{value['genome']}")
+        lines.append(f"|{value['description']}")
+
+    lines.append("|}")
+
+    # apparentlty "writelines" does not add line separators
+    return [f"{x}\n" for x in lines]
+
+
+if __name__ == "__main__":
+    args = docopt.docopt(doc, version="0.1")
+    if not os.path.exists(args["<file>"]):
+        sys.stderr.write(f"{args['<file>']} not found. Exit\n")
+        sys.exit(1)
+
+    with open(args["<file>"]) as f:
+        content = yaml.safe_load(f.read())
+
+    sys.stdout.writelines(format_to_wiki(content))

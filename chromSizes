@@ -1,0 +1,11 @@
+#! /bin/bash
+
+[[ $# -ne 1 ]] \
+  && echo "Usage: chromSizes <genome>" \
+  && echo "Writes to STDOUT. Wraps UCSC SQL commands."          \
+  && exit
+
+GENOME=$1
+
+mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A \
+  -D $GENOME -e 'SELECT chrom, size FROM chromInfo' | awk 'NR!=1'

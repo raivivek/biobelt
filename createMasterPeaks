@@ -1,0 +1,55 @@
+#! /usr/bin/env ruby
+
+# Vivek Rai
+# vivekrai@umich.edu
+# (c) Parker Lab
+#
+# GPLv3
+
+require 'optparse'
+require 'ostruct'
+
+
+def gzip?(x)
+  File.extname(x) == '.gz'
+end
+
+options = OpenStruct.new
+
+options.q = 0.05
+
+pargs = OptionParser.new do |opts|
+  opts.banner = <<~BANNER
+
+  USAGE: create_master_peaks [BroadPeak] [-q FDR]
+
+  Filters broadPeaks for FDR (default 0.05), SORTS and MERGES to produce BED output
+
+  Accepts FILE (.gz allowed) or STDIN. Prints to STDOUT.
+
+  BANNER
+
+  opts.on('-q', '--fdr [FDR]', Float, "Q-value threshold") do |v|
+    options.q = v
+  end
+
+  opts.on_tail("-h", "--help", "Show this message") do
+    puts opts
+    exit
+  end
+end.parse!
+
+input = if (pargs.empty? or pargs.nil?) then '/dev/stdin' else pargs.join ' ' end
+prog = if gzip? input then 'zcat' else 'cat' end
+
+STDERR.syswrite "Got #{input.split.size} files.\n"
+
+COMMAND = <<~CMD
+  #{prog} #{input} \
+    | awk '{if($9>=#{-Math.log10(options.q)}){print}}' \
+    | LC_ALL=C sort -k1,1 -k2,2n | mergeBed
+CMD
+
+
+STDERR.syswrite "Using FDR: #{options.q}\n"
+STDOUT.syswrite `#{COMMAND}`

@@ -1,0 +1,60 @@
+#! /usr/bin/env Rscript
+#
+# Parker Lab
+# theparkerlab.org
+#
+# (c) Parker Lab
+#
+
+option_list <- list(
+  make_option(c("--overlap"), action = "store", type = "character", default = "", help = "[Required] Path to the output of chromhmm_overlap.py."),
+  make_option(c("--out"), action = "store", type = "character", help = "[Required] Name of output pdf"),
+  make_option(c("--height"), action = "store", type = "numeric", default = 15, help = "[Optional] Height (in inches) of output pdf"),
+  make_option(c("--width"), action = "store", type = "numeric", default = 15, help = "[Optional] Width (in inches) of output pdf")
+)
+
+option_parser <- OptionParser(usage = "usage: Rscript %prog [options]", option_list = option_list, add_help_option = T)
+opts <- parse_args(option_parser)
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(ggplot2)
+})
+
+overlap <- read.table(opts$overlap, head = T, as.is = T, sep = '\t')
+sums <- dplyr::group_by(overlap, tissue, tss_relative) %>%
+  dplyr::summarise(sums=sum(overlap))
+overlap <- left_join(overlap, sums) %>%
+  dplyr::mutate(overlap=overlap/sums) %>%
+  dplyr::select(-sums)
+
+unique_types <- unique(overlap$state)
+factor_order <- rev(c("Active TSS", "Weak TSS", "Flanking TSS", "Bivalent poised TSS",
+  "Genic enhancer", "Active enhancer 1", "Active enhancer 2", "Weak enhancer", "Strong
+  transcription", "Weak transcription", "Repressed polycomb", "Weak repressed polycomb",
+  "Quiescent low signal"))
+
+overlap$state <- as.vector(sapply(overlap$state, function(x){paste(strsplit(x, "_")[[1]][-1], collapse=" ")}))
+overlap$state <- factor(overlap$state, levels=factor_order)
+overlap <- overlap[order(overlap$state),]
+
+color_pallette <- rev(c("#F91000", "#FA5D5F", "#FA5D5F", "#C90FBE", "#F9C202", "#F9C202",
+  "#F9C202", "#FFFB04", "#24A647", "#8FFF5C", "#757575", "#B8B8B8", "#FFFFFF"))
+
+overlap$tss_relative <- paste('TSS', overlap$tss_relative, 'peaks')
+
+p <- ggplot(overlap) +
+  geom_bar(aes(x=tissue,y=overlap, fill=state), stat="identity", colour="black") +
+  coord_flip() +
+  facet_grid(. ~ tss_relative) +
+  scale_fill_manual(values=color_pallette) +
+  theme_grey(base_size = 23) +
+  ylab("Proportion overlap with chromatin state") +
+  xlab("Tissue") +
+  guides(fill=guide_legend(title='Chromatin state'))
+
+pdf(opts$out, width=opts$width, height=opts$height)
+print(p)
+dev.off()
+
+# vim:syntax=r

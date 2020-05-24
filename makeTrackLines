@@ -1,0 +1,73 @@
+#! /usr/bin/env python3
+#
+# Vivek Rai
+# mail@raivivek.in
+#
+# (c) Parker Lab
+# GPL License
+
+import sys
+import pathlib
+
+import pandas as pd
+import docopt
+
+
+prefix = "https://theparkerlab.med.umich.edu/data/vivekrai/2019_STJ_Liver/samples_gb"
+
+track_templates = {}
+
+
+def scan_dir(path):
+    path = pathlib.Path(args["<path-to-bigwigs>"])
+    bigwigs = path.glob("*.bw")
+    sample_info = pd.read_table(args["<sample_info>"])
+
+    # get unique values for the specified column
+    # choose colors depending on the unique values
+
+    for bw in bigwigs:
+        name = bw.stem
+        # if name == "HepG2":
+        #     color = "68,1,84"
+        if (
+            sample_info[sample_info["Sample ID"] == f"SJLB{name}"][
+                args["--col"]
+            ].values[0]
+            == "Y"
+        ):
+            color = "255,128,0"
+        else:
+            color = "178,34,34"
+
+        print(
+            f"track type=bigWig db=hg19 name={name} visibility=full"
+            f" color={color} alwaysZero=on maxHeightPixels=20:20:20"
+            " windowingFunction=mean smoothingWindow=3 autoScale=off"
+            f" viewLimits=0:2 bigDataUrl={prefix}/{name}.bw"
+        )
+
+        # print(
+        #    f"track type=broadPeak db=hg19 name={name}\n{prefix}/{name}_peaks.broadPeak"
+        # )
+
+
+if __name__ == "__main__":
+    doc = """
+    makeTrackLines
+
+    Given sample information file or a library info file, prepare UCSC genome
+    browser custom track content for upload.
+
+    Usage:
+    makeTrackLines <path-to-bigwigs> <sample_info> --col=COL
+
+    Options:
+    <path-to-bigwigs>       Path to bigwigs
+    <sample_info>           Sample info file
+    --col=COL               Column to use for coloring
+    """
+
+    args = docopt.docopt(doc)
+
+    scan_dir(args)

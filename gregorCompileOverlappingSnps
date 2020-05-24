@@ -1,0 +1,78 @@
+#! /usr/bin/env python
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# Parker Lab
+#
+# Oct 16, 2018
+# GPLv3
+
+import os
+import sys
+import glob
+import argparse
+from pathlib import Path
+
+import pandas
+
+
+def get_ld_snps(bed, gregor_out_dir):
+    gregor_out_path = Path(os.path.abspath(gregor_out_dir))
+    ld_path = gregor_out_path / bed.name
+    final_df = pandas.DataFrame()
+    for overlap_file in ld_path.glob("index.snp.LD.*.txt"):
+        df = pandas.read_csv(
+            overlap_file,
+            sep="\t",
+            dtype={
+                "index_SNP": str,
+                "LD_buddy_pos": str,
+                "inBedPos": int,
+                "start": int,
+                "end": int,
+            },
+        )
+        final_df = final_df.append(
+            df[["index_SNP", "inBedPos", "start", "end"]], ignore_index=True
+        )
+    final_df["file"] = bed.stem
+
+    return final_df
+
+
+def getopts():
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+
+    parser.add_argument("gregor_out_dir", help="GREGOR output directory")
+    parser.add_argument(
+        "--output", default=sys.stdout, help="Output file (default: stdout)"
+    )
+
+    group.add_argument("--indexbed", help="Path to `indexbed.txt`")
+    group.add_argument("--beds", nargs="+", help="Path to BED files")
+
+    return parser
+
+
+if __name__ == "__main__":
+    parser = getopts()
+    args = parser.parse_args()
+
+    if args.indexbed is not None:
+        if Path(args.indexbed).exists():
+            with open(args.indexbed) as f:
+                bed_list = [x.strip() for x in f.readlines()]
+        else:
+            print("File not Found Error: Check `indexbed` path!")
+            sys.exit(1)
+    else:
+        bed_list = args.beds
+
+    all_df = pandas.DataFrame()
+    for bed in bed_list:
+        _tmp_df = get_ld_snps(Path(bed), args.gregor_out_dir)
+        if not _tmp_df.empty:
+            all_df = all_df.append(_tmp_df, ignore_index=True)
+
+    all_df.to_csv(sys.stdout, sep="\t", index=False)

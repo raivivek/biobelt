@@ -1,0 +1,104 @@
+#! /usr/bin/env python3
+
+# Parker Lab
+# theparkerlab.org
+#
+# Original author: @porchard
+# Modified by: @raivivek
+
+import os
+import logging
+import argparse
+from functools import lru_cache
+
+import pybedtools as bt
+
+parser = argparse.ArgumentParser(
+    description="Prepare a chromHMM overlap summary.", add_help=True
+)
+parser.add_argument("peaks", help="Bed file of peaks.")
+parser.add_argument("tss", help="Bed file of TSS (not gzipped)")
+parser.add_argument("chrom_sizes", help="Chrom sizes file")
+parser.add_argument(
+    "chromhmm",
+    nargs="+",
+    help="3-column BED files of chromHMM regions. Typically named: {tissue}.{state}.bed",
+)
+parser.add_argument(
+    "--tss-extension",
+    type=int,
+    default=1000,
+    help="Distance (in bp) to use for distal/proximal definition. (default: 1000).",
+)
+
+args = parser.parse_args()
+
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s: %(message)s")
+
+
+@lru_cache(maxsize=32)
+def parse_chromhmm_file_name(f):
+    # assume files are named: {tissue}.{state}.bed
+    tissue, state, _ = os.path.basename(f).split(".")
+    return {"tissue": tissue, "state": state}
+
+
+logging.info("Extending TSS by {}".format(args.tss_extension))
+tss_extended = bt.BedTool(args.tss).slop(b=args.tss_extension, g=args.chrom_sizes)
+
+logging.info("Creating TSS-proximal and TSS-distal peaks")
+proximal = bt.BedTool(args.peaks).sort().intersect(tss_extended, wa=True).merge()
+distal = bt.BedTool(args.peaks).sort().intersect(tss_extended, wa=True, v=True).merge()
+
+distal_sums = dict()
+proximal_sums = dict()
+for count, chromhmm_file in enumerate(args.chromhmm):
+    logging.info(
+        "Overlapping with chromHMM file {} of {} ({})".format(
+            count, len(args.chromhmm), chromhmm_file
+        )
+    )
+    logging.info("Overlapping distal intervals with chromHMM files")
+
+    # distal peak overlaps
+    distal_overlap = distal.intersect(b=chromhmm_file, wo=True)
+    for i in distal_overlap:
+        amount_of_overlap = int(i[6])
+        if chromhmm_file not in distal_sums:
+            distal_sums[chromhmm_file] = 0
+        distal_sums[chromhmm_file] += amount_of_overlap
+
+    logging.info("Overlapping proximal intervals with chromHMM files")
+
+    # proximal peak overlaps
+    proximal_overlap = proximal.intersect(b=chromhmm_file, wo=True)
+    for i in proximal_overlap:
+        amount_of_overlap = int(i[6])
+        if chromhmm_file not in proximal_sums:
+            proximal_sums[chromhmm_file] = 0
+        proximal_sums[chromhmm_file] += amount_of_overlap
+
+
+# For sake of convenience, just print everything to STDOUT and let user handle
+# how they want to save it.
+print("tissue\tstate\toverlap\ttss_relative")
+for chromhmm_file, overlap in distal_sums.items():
+    parsed_chromhmm_file_name = parse_chromhmm_file_name(chromhmm_file)
+    print(
+        "{}\t{}\t{}\tdistal".format(
+            parsed_chromhmm_file_name["tissue"],
+            parsed_chromhmm_file_name["state"],
+            overlap,
+        )
+    )
+for chromhmm_file, overlap in proximal_sums.items():
+    parsed_chromhmm_file_name = parse_chromhmm_file_name(chromhmm_file)
+    print(
+        "{}\t{}\t{}\tproximal".format(
+            parsed_chromhmm_file_name["tissue"],
+            parsed_chromhmm_file_name["state"],
+            overlap,
+        )
+    )
+
+logging.info("Done")

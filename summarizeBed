@@ -1,0 +1,70 @@
+#! /usr/bin/env Rscript
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPL-3
+#
+# July 20, 2018
+#
+
+suppressPackageStartupMessages({
+  library(magrittr)
+  library(optparse)
+})
+
+'summarizeBed
+
+  Provides useful summary of a BED-like (3+ cols) file.
+    - Total peaks
+    - Total span (bp)
+    - Average width
+    - Median width
+    - Max width
+    - Min width
+
+  Writes to STDOUT.
+
+  Usage:
+  summarizedBed <file>... [--] [--chr]
+
+  Use `-` to specify STDIN.
+
+  Options:
+  -h --help      Show this screen.
+  -v, --version  Display version.
+  --chr          Display summary per chr.
+' -> doc
+
+args <- docopt::docopt(doc, version='1.1')
+
+beds <- args$file
+
+if (length(beds) < 2 && beds[1] == '-') {
+  beds <- c('cat /dev/stdin')
+}
+
+for (bed in beds) {
+  bed_file <- data.table::fread(bed, header = F, showProgress = T)
+
+  cols <- ncol(bed_file)
+
+  if (cols < 3) exit(1) # fail if < 3 columns
+  if (cols > 3) bed_file <- bed_file[, c(1:3)] # keep only first three columns
+
+  colnames(bed_file) <- c('Chr', 'Start', 'End')
+  bed_file$Length <- bed_file$End - bed_file$Start
+
+  summary_df <- bed_file %>%
+    `if` (args$chr, dplyr::group_by(., Chr), .) %>%
+    dplyr::summarize("Total-peaks" = dplyr::n(),
+                     "Total-span_(kb)" = round(sum(as.numeric(Length))/1e3, 2),
+                     "Average-width_(bp)" = round(mean(Length), 2),
+                     "Median-width_(bp)" = median(Length),
+                     "Max-width_(kb)" = max(Length)/1e3,
+                     "Min-width_(bp)" = min(Length),
+                     "File" = bed,
+                     )
+
+
+  write.table(summary_df, row.names = F, quote = F, sep = '\t')
+}

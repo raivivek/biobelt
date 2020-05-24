@@ -1,0 +1,57 @@
+#! /usr/bin/env python3
+
+import os
+import sys
+import docopt
+
+doc = """
+    extract_profiles_ataqv
+
+    Extacts TSS Coverage (tss_coverage) and Fragment Length Counts
+    (fragment_length_counts) profiles from a raw ataqv metrics output file into
+    two separate files, and prints the rest of the metrics to STDOUT.
+
+    Usage:
+        extract_profiles_ataqv <metrics_file>
+
+    Options:
+        metrics_file        Ataqv metrics file.
+"""
+
+
+def process_profile(metrics):
+    coverage_d, count_d = {}, {}
+
+    with open(metrics) as f:
+        for line in f:
+            splits = line.split("\t")
+            if len(splits) != 3:
+                print("Error. Is it a metric file?")
+                return
+
+            name, metric, value = splits
+            if metric == "tss_coverage":
+                coverage_d[name] = value
+            elif metric == "fragment_length_counts":
+                count_d[name] = value
+            else:
+                sys.stdout.write(line)
+
+    with open("metrics_tss-coverage.txt", "w") as f:
+        for k, v in coverage_d.items():
+            for val in eval(v):
+                f.write("{}\t{}\t{}\n".format(os.path.basename(k), *val))
+
+    with open("metrics_frag-length.txt", "w") as f:
+        for k, v in count_d.items():
+            for val in eval(v):
+                f.write("{}\t{}\t{}\t{}\n".format(os.path.basename(k), *val))
+
+
+if __name__ == "__main__":
+    args = docopt.docopt(doc)
+    if not os.path.exists(args["<metrics_file>"]):
+        print("Error. File path not found. Exiting!", file=sys.stderr)
+        sys.exit(1)
+
+    process_profile(args["<metrics_file>"])

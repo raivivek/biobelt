@@ -1,0 +1,59 @@
+#! /usr/bin/env Rscript
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# (c) Parker Lab
+#
+# November 20, 2018
+# Last update: April 19, 2019
+
+suppressPackageStartupMessages({
+  library(data.table)
+})
+
+args <- commandArgs(trailingOnly = TRUE)
+
+'plotCountOverlap
+
+  Takes as input the cleaned RDS file from the cleanCountOverlap.
+
+  Usage:
+  plotCountOverlap <file> [--autosomal]
+
+  Options:
+  -h --help     Show this screen.
+' -> doc
+
+arguments <- docopt::docopt(doc, version = '1.0')
+
+to_rpkm <- function(df, eff.len) {
+
+  df[, lapply(.SD, function(x) exp(log(x) + log(1e9) - log(eff.len) - log(sum(x)))), ]
+}
+
+for (i in 1:length(args)) {
+  write(paste("Reading argument(s)..", args[i]), stderr())
+  counts <- readRDS(args[i])
+
+  if (!"data.table" %in% class(counts)) {
+    counts <- as.data.table(counts)
+  }
+
+  #if (args$autosomal) {
+  chrs <- paste0("chr", 1:22)
+  counts <- counts[Chr %in% chrs, ]
+  #}
+
+  write("Converting to RPKM..", stderr())
+  rpkm_bamcounts <- to_rpkm(counts[, -c(1:4)], counts$Length)
+
+  cor_rpkm <- cor(rpkm_bamcounts)
+
+  pdf(paste0(tools::file_path_sans_ext(args[i]), '_plot.pdf'), width=8, height=8)
+  gplots::heatmap.2(cor_rpkm, col = viridisLite::viridis,
+                    trace = 'none', dendrogram="column", density.info="none",
+                    symm=T, labCol = FALSE, margins = c(5, 15))
+  dev.off()
+}
+
+# vim:syntax=r

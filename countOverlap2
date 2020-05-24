@@ -1,0 +1,126 @@
+#! /usr/bin/env Rscript
+#
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# Parker Lab
+#
+# May 18, 2019
+
+#
+# Parse options
+#
+'countOverlap
+
+Usage:
+  countOverlap [--threads=<n>] [--saveto=<dir>] [--paired] [--plot=<method>] [-T=<T>] <bed> <bams>...
+  countOverlap [-h | --help]
+  countOverlap [--version]
+
+Options:
+  -h --help             Show help
+  bed                   BED-like file (first 3 columns are used)
+  bams                  BAM files
+  --version             Show version info
+  --plot=<method>       Produce correlation plot with specified method [default: none]
+  --saveto=<dir>        Output directory for plots and counts [default: .]
+  --threads=<n>         Threads to use [default: 6]
+  --paired              Run counts in paired-end mode [default: FALSE]
+  -T=T                  Directory for temporary files [default: .]
+' -> doc
+
+opts <- docopt::docopt(doc, version = '0.2')
+
+stopifnot(file.exists(opts$bed))
+
+suppressPackageStartupMessages({
+  library(glue)
+  library(GenomicRanges)
+  library(magrittr)
+})
+
+#
+# Utilities
+#
+to_rpkm <- function(df, eff.len) {
+  if (! "data.table" %in% class(df)) {
+    df <- data.table::as.data.table(df)
+  }
+  df[, lapply(.SD, function(x) exp(log(x) + log(1e9) - log(eff.len) - log(sum(x)))), ]
+}
+
+
+read_peak_file <- function(file) {
+  print(glue("Reading {file}.."), stderr())
+  data.table::fread(file, header = F, sep = '\t', select = c(1:3),
+                    col.names = c("chr", "start", "end"))
+}
+
+
+plotCorrelation <- function(result) {
+  write("Converting to RPKM..", stderr())
+  rpkm_bamcounts <- to_rpkm(result$counts, result$annotation$Length)
+
+  write(glue("Using {opts$plot} metric for computing correlation."), stderr())
+
+  if (!opts$plot %in% c("spearman", "pearson")) {
+    write("Supplied correlation method not found. Using pearson.", stderr())
+    opts$plot <- "pearson"
+  }
+
+  cor_rpkm <- cor(rpkm_bamcounts, method = opts$plot)
+
+  write("Saving plot..", stderr())
+  pdf(paste0(opts$saveto, "/", tools::file_path_sans_ext(opts$bed), '_plot.pdf'),
+      width=8, height=8)
+  gplots::heatmap.2(cor_rpkm, col = viridisLite::viridis, symm = T, symbreaks = F,
+                    symkey = F, trace = 'none', dendrogram="row",
+                    density.info="none", labCol = FALSE, margins = c(5, 15))
+  dev.off()
+}
+
+#
+# Main
+#
+main <- function() {
+  # Read peak files into a GRanges object for easy interval processing
+  master_peaks <- read_peak_file(opts$bed) %>%
+    makeGRangesFromDataFrame(., starts.in.df.are.0based = T)
+
+  print(glue("Got {length(master_peaks)} peaks.."), stderr())
+
+  master_peaks$id <- paste0("Peak_", 1:length(master_peaks))
+  master_peaks$Strand <- "."
+
+  # Creates a SAF annotation file based on input dataframe that is used by
+  # Rsubread for counting reads overlapping features
+  annot_file <- Rsubread::createAnnotationFile(master_peaks)
+
+  print(file.path(opts$saveto,
+                     glue("{tools::file_path_sans_ext(basename(opts$bed))}_subread.rds")))
+
+  print(glue("Counting reads overlapping peaks using {opts$threads} threads.."), stderr())
+  results <- Rsubread::featureCounts(opts$bams,
+    annot.ext = annot_file, largestOverlap = T, nthreads = opts$threads,
+    isPairedEnd = opts$paired)
+
+  labels <- tools::file_path_sans_ext(basename(opts$bams))
+  colnames(results$counts) <- labels
+
+  dir.create(opts$saveto, showWarnings = F, recursive = T)
+
+  saveRDS(results,
+    file = file.path(opts$saveto,
+                     glue("{tools::file_path_sans_ext(basename(opts$bed))}_subread.rds")
+    )
+  )
+
+  if(opts$plot != "none") {
+    write("Making plots..", stderr())
+    plotCorrelation(results)
+  }
+}
+
+main()
+
+# vim:syntax=r

@@ -1,0 +1,62 @@
+#! /usr/bin/env python3
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# (c) Parker Lab
+#
+# October 3, 2018
+
+# Given two BED file, report features in file B that do not overlap a features
+# in A +- "window".
+#
+# For example,
+#   `bedWindowOverlap -a tss.bed -b peaks.bed -w 1000 -v`
+# should return all features in b that do not overlap +- 1000bp features in A.
+# The opposite funcationality, where we are interested in features in A, are
+# available through `bedtools window` command.
+
+
+import argparse
+from argparse import RawDescriptionHelpFormatter
+import subprocess
+import sys
+
+__description__ = """
+    Given two <bed/gff/vcf> files (A, B) REPORT FEATURES IN B that overlap or
+    do-not overlap with +- W kb of features in A.
+
+    For example, set of peaks that are within 5Kb of RefSeq TSS (proximal) can
+    be computed by:
+
+    bedWindowOverlap -a hg19.refseq.tss.bed -b peaks.bed -w 5000
+
+    Require `bedtools` and `awk`. Might complain if input files are not sorted.
+    """
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(
+        description=__description__, formatter_class=RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "-a", required=True, help="BED file (features you overlap with)"
+    )
+    parser.add_argument(
+        "-b", required=True, help="BED file (features you want as output)"
+    )
+    parser.add_argument(
+        "-w", type=int, default=1000, help="Window size (default 1000bp)"
+    )
+    parser.add_argument("-v", action="store_true", help="Complement windows")
+
+    args = parser.parse_args()
+
+    COMMAND = """
+        bedtools closest -a {b} -b {a} -d -t 'first' \
+            | awk '{{if($NF {sign} {w}) print}}'
+    """.format(
+        a=args.a, b=args.b, w=args.w, sign=">" if (args.v) else "<="
+    )
+
+    cmd = subprocess.Popen(COMMAND, shell=True)
+    cmd.communicate()

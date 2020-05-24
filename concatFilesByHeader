@@ -1,0 +1,18 @@
+#! /bin/bash
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPLv3, Parker Lab
+#
+# September 24, 2018
+#
+
+if [[ $1 == "-h" ]]; then
+  cat <<- MSG
+Usage: concatFilesByHeader <files>
+Merges multiple files with same header into single file. Writes to STDOUT.
+MSG
+  exit 1
+fi
+
+awk 'FNR==1 && NR!=1{next;}{print}' "$@"

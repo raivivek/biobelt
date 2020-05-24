@@ -1,0 +1,218 @@
+#! /usr/bin/env python3
+
+# The Parker Lab
+# University of Michigan
+# theparkerlab.org
+#
+# Original author: Peter Orchard
+# Modified by: Vivek Rai
+
+import os
+import sys
+import signal
+import logging
+import argparse
+from pathlib import Path
+from itertools import repeat
+from sys import stderr, stdout
+from multiprocessing import Pool
+
+import pysam
+
+
+__description__ = """
+Subsample BAM files.
+
+Can subsample them (in parallel manner) to
+    a) fixed depth, or
+    b) minimum depth.
+
+Will skip files that do not have minimum specified thresholds.
+"""
+
+
+def worker_init():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description=__description__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--suffix",
+        type=str,
+        help="file.bam -> file.SUFFIX.bam (default: number of reads)",
+    )
+    parser.add_argument("bam", nargs="+", type=str, help="The bams to subsample.")
+
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--number-reads",
+        dest="number_reads",
+        type=int,
+        nargs="?",
+        help="Subsample to given depth.",
+    )
+    group.add_argument(
+        "--same-depth",
+        dest="same_depth",
+        action="store_true",
+        help="Subsample to min depth in the list.",
+    )
+
+    parser.add_argument(
+        "-o", "--output", help="Output directory (default: source directory)"
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Talk more")
+    parser.add_argument(
+        "--seed", type=int, default=2019, help="Seed for the sampler (default: 2019)."
+    )
+    parser.add_argument(
+        "-j", "--parallel", type=int, default=1, help="Number of parallel jobs."
+    )
+
+    parser.add_argument(
+        "--no-skip",
+        action="store_true",
+        help="Don't skip files which have less reads than asked",
+    )
+
+    parser.add_argument("--no-index", action="store_false", help="Skip BAM indexing")
+
+    args = parser.parse_args()
+
+    return args
+
+
+def get_total_reads(bam):
+    bam_prefix = Path(bam).stem
+    num_reads = int(pysam.view("-cF 0x100", bam).strip())
+
+    logging.info(f"Found {num_reads} reads in {bam_prefix}.")
+
+    return {bam_prefix: num_reads}
+
+
+def subsample(bam, args, number_reads):
+    bam_prefix, out_path = Path(bam).stem, Path(bam).parent
+    subsample_fraction = None
+
+    if args.number_reads:
+        reads_to_subsample = int(args.number_reads)
+    else:
+        reads_to_subsample = min(number_reads.values())
+
+    subsample_fraction = reads_to_subsample / float(number_reads[bam_prefix])
+
+    if not args.suffix:
+        args.suffix = reads_to_subsample
+
+    if args.number_reads:
+        if subsample_fraction >= 1:
+            logging.info(
+                f"Keeping all reads from {bam}, since the number of reads"
+                " desired is greater than or equal to the number of reads"
+                " in the original bam"
+            )
+        else:
+            logging.info(
+                f"Subsampling {bam} to approximately {args.number_reads} reads"
+            )
+    else:
+        logging.info(
+            f"Subsampling {bam_prefix} to approximately {reads_to_subsample} reads"
+        )
+
+    if args.output is None:
+        args.output = out_path
+        logging.info(f"Writing to {args.output}")
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output, exist_ok=True)
+
+    out_file = f"{bam_prefix}.{args.suffix}.bam"
+    full_out_path = os.path.join(args.output, out_file)
+
+    if subsample_fraction >= 1:
+        logging.info(f"{bam_prefix} has less than {args.number_reads} reads..")
+
+        if args.no_skip:
+            logging.info("--no-skip specified hence subsampling...")
+
+            pysam.view("-h", "-b", "-o", full_out_path, bam, catch_stdout=False)
+            pysam.index(full_out_path, catch_stdout=False)
+    else:
+        subsample_fraction = f"{subsample_fraction:.3f}".lstrip("01")
+        logging.info(f"Subsampling fraction computed to: {subsample_fraction}")
+        logging.info(f"Writing to {full_out_path}")
+
+        pysam.view(
+            "-h",
+            "-b",
+            "-s",
+            f"{args.seed}{subsample_fraction}",
+            "-o",
+            full_out_path,
+            bam,
+            catch_stdout=False,
+        )
+
+        if args.no_index:
+            pysam.index(full_out_path, catch_stdout=False)
+
+
+if __name__ == "__main__":
+    args = get_args()
+
+    log_level = logging.INFO if args.verbose else logging.WARNING
+
+    logging.basicConfig(
+        format="%(asctime)s %(message)s",
+        datefmt="%m/%d/%Y %I:%M:%S %p",
+        level=log_level,
+    )
+
+    number_reads = {}
+
+    logging.info(f"Will run {args.parallel} job(s) at a time..")
+    logging.warning(
+        f"Using seed {args.seed}; "
+        "If resampling a file, you MUST specify a different seed.."
+    )
+
+    # Check that the files exist; pysam will throw ugly errors otherwise
+    for bam in args.bam:
+        if not os.path.exists(bam):
+            logging.error(f"{bam} doesn't exist.")
+            sys.exit(1)
+
+    # Collect read metrics for all input files
+    logging.info("Computing total reads in each file..")
+    pool = Pool(processes=args.parallel, initializer=worker_init)
+    async_result = pool.map_async(get_total_reads, args.bam)
+
+    try:
+        result = async_result.get()
+        for k in result:
+            number_reads.update(k)
+    except Exception as e:
+        logging.error(e)
+    finally:
+        pool.close()
+
+    # Subsample now
+    pool = Pool(processes=args.parallel, initializer=worker_init)
+    subsample_result = pool.starmap_async(
+        subsample,
+        zip(args.bam, repeat(args, len(args.bam)), repeat(number_reads, len(args.bam))),
+    )
+
+    try:
+        status = subsample_result.get()
+    except Exception as e:
+        logging.error(e)
+    finally:
+        pool.close()

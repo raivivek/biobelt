@@ -1,0 +1,51 @@
+#! /usr/bin/env python
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPL-3
+#
+# June 26, 2019
+#
+
+import sys
+import os
+import json
+
+import yaml
+import docopt
+
+doc = """
+    yaml2json
+
+    Converts YAML to JSON.
+
+    Usage: yaml2json [<file>]
+
+    Options:
+    <file>   YAML file
+"""
+
+args = docopt.docopt(doc, version="0.1")
+
+
+def yamltojson(file: str):
+    """ Convert YAML to JSON.
+
+    Specify FILE or input from STDIN.
+    """
+    with open(file, "r") as f:
+        _yaml = yaml.safe_load(f)
+    print(json.dumps(_yaml, indent=4, sort_keys=True))
+
+
+if __name__ == "__main__":
+    yaml_file = args["<file>"]
+
+    if yaml_file and not os.path.exists(yaml_file):
+        print("File not found.")
+        sys.exit(1)
+
+    if not yaml_file:
+        yaml_file = "/dev/stdin"
+
+    yamltojson(yaml_file)

@@ -1,0 +1,86 @@
+#! /usr/bin/env Rscript
+#
+#
+# Vivek Rai
+# vivekrai@umich.edu, (c) Parker Lab
+# MIT License
+#
+# Jun 10, 2019
+
+suppressPackageStartupMessages({
+  require("glue")
+})
+
+
+doc <- '
+  ciceroToLongrange
+
+  Formats Cicero peak-pair output to Longrange format for display in WUSTL Epigenome
+  Browser. Co-accessibility values are displayed connection _strength_.
+
+  Usage:
+    ciceroToLongrange <file> <output> [--threshold=T] [--bgzip]
+
+  Options:
+  file          Path to the peak-pairs co-accessibility file (3-columns, with header)
+  output        Output file in `longrange` format
+  --threshold T Filter peak-pairs with coaccessibility [0-1.0] > T [default: 0]
+  --bgzip       Prepare BGZIP files for Epigenome Browser tracks
+'
+
+args <- docopt::docopt(doc, version = "0.1")
+
+read_df <- data.table::fread(args$file)
+num_cols <- ncol(read_df)
+
+# Must have at least 2 columns.
+stopifnot(num_cols > 1)
+
+# If only two columns are supplied, a reasonable assumption is to set
+# co-accessibility for all peak pairs to 1.
+if (num_cols == 2) {
+  write("Found only two columns. Setting co-accessibility to 1..", stderr())
+  read_df$coaccess <- 1
+}
+
+colnames(read_df) <- c("Peak1", "Peak2", "coaccess")
+
+stopifnot(ncol(read_df) == 3 && names(read_df) == c("Peak1", "Peak2", "coaccess"))
+
+write(glue("Found {nrow(read_df)} pairs of peaks.."), stderr())
+
+write(glue("Keeping peak-pairs with co-accessibility score > {args$threshold}.."), stderr())
+read_df <- read_df[coaccess > args$threshold, ]
+write(glue("Left with {nrow(read_df)} peak-pairs.."), stderr())
+
+source <- stringr::str_split(read_df$Peak1, "_", simplify = T)
+target <- stringr::str_split(read_df$Peak2, "_", simplify = T)
+score <- as.numeric(read_df$coaccess)
+
+dir.create(dirname(args$output), showWarnings = F, recursive = T)
+
+out_df <- data.table::data.table(
+  source[, 1],
+  as.integer(source[, 2]),
+  as.integer(source[, 3]),
+  glue("{target[, 1]}:{target[, 2]}-{target[, 3]},{round(score*100)}")
+)
+
+# sort so that it can be indexed later using tabix
+data.table::setorder(out_df, V1, V2, V3)
+
+write(glue("Writing to {args$output}.."), stderr())
+data.table::fwrite(
+  file = args$output,
+  out_df,
+  sep = "\t",
+  quote = F,
+  row.names = F,
+  col.names = F
+)
+
+if (args$bgzip) {
+  write("Creating compressed and indexed output file..", stderr())
+  system(glue("bgzip {args$output}"))
+  system(glue("tabix -p bed {args$output}.gz"))
+}

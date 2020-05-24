@@ -1,0 +1,68 @@
+#! /usr/bin/env Rscript
+
+# Vivek Rai
+# vivekrai@umich.edu
+# GPL-3
+#
+
+if (sys.nframe() == 0) {
+	args = commandArgs(trailingOnly = T)
+	if (length(args) != 2 || all(!sapply(args, file.exists))) {
+		write("Calculate precision-recall metrics for two bed files.", stderr())
+		write(glue::glue("usage: bedConfusionMatrix <subject.bed> <query.bed>"), stderr())
+		quit()
+	}
+	subject = read.table(args[1])
+	colnames(subject)[1:3] <- c("chr", "start", "end")
+
+	query = read.table(args[2])
+	colnames(query)[1:3] <- c("chr", "start", "end")
+
+	write(compare_peaks(query, subject), stdout())
+}
+
+compare_peaks <- function(query, subject) {
+  if (!is.data.frame(query)) {
+    query <- read.table(query)
+  }
+  colnames(query) <- c("chr", "start", "end", rep(".", ncol(query) - 3))
+
+  if (!is.data.frame(subject)) {
+    subject <- read.table(subject)
+  }
+  colnames(subject) <- c("chr", "start", "end", rep(".", ncol(subject) - 3))
+
+  gQuery <- GenomicRanges::makeGRangesFromDataFrame(query, keep.extra.columns=FALSE,
+                                     ignore.strand=TRUE,
+                                     seqinfo=NULL,
+                                     seqnames.field=c("chr"),
+                                     start.field="start",
+                                     end.field=c("end"),
+                                     starts.in.df.are.0based=TRUE)
+  write(glue::glue("{length(gQuery)} peaks in Query.."), stderr())
+
+  gSubject <- GenomicRanges::makeGRangesFromDataFrame(subject, keep.extra.columns=FALSE,
+                                       ignore.strand=TRUE,
+                                       seqinfo=NULL,
+                                       seqnames.field=c("chr"),
+                                       start.field="start",
+                                       end.field=c("end"),
+                                       starts.in.df.are.0based=TRUE)
+  write(glue::glue("{length(gSubject)} peaks in Subject.."), stderr())
+
+  overlaps <- GenomicRanges::findOverlaps(gQuery, gSubject)
+  TP <- length(overlaps)
+  FP <- length(gQuery) - TP
+  FN <- length(gSubject) - TP
+  recall <- 100 * (TP / (TP + FN))
+  precision <- 100 * (TP / (TP + FP))
+  F1 <- 2 * precision * recall / (precision + recall)
+
+  jaccard <- sum(width(intersect(gQuery, gSubject))) / sum(as.numeric(width(union(gQuery, gSubject))))
+
+  # Recall is 100*(TP/(TP + FN))
+  # Precision is 100*(TP / (TP + FP))
+  # F1 is computed as 2 * (precision * recall) / (precision + recall)
+  list(F1 = F1, recall = recall, precision = precision,
+       TP = TP, FP = FP, FN = FN, jaccard = jaccard)
+}

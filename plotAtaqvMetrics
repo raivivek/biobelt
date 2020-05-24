@@ -1,0 +1,49 @@
+#! /usr/bin/env Rscript
+
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(magrittr)
+  library(dplyr)
+})
+
+doc <- '
+  plotAtaqvMetrics
+
+  Usage: plotAtaqvMetrics <metrics> [--output=.]
+
+  Options:
+  --output=O    Output file [default: metrics_plot.pdf]
+'
+
+opts <- docopt::docopt(doc)
+
+stopifnot(file.exists(opts$metrics))
+
+theme_set(cowplot::theme_cowplot(font_size = 12))
+
+df <- read.table(opts$metrics, header = F,
+                 col.names = c("Name", "Metric", "Value")) %>%
+      tidyr::pivot_wider(names_from = Metric, values_from = Value)
+
+
+p1 <- ggplot(df) + geom_point(aes(tss_enrichment, hqaa, shape = Name, col = Name)) +
+    scale_shape_manual(values=1:25) + scale_y_continuous(labels=scales::unit_format(unit = "M", scale=1e-6)) +
+    labs(x = "TSS Enrichment", y = "HQAA")
+
+p2 <- ggplot(df) + geom_point(aes(tss_enrichment, hqaa_overlapping_peaks_percent, shape = Name, col = Name)) +
+    scale_shape_manual(values=1:25) +
+    labs(x = "TSS Enrichment", y = "HQAA overlapping peaks (%)")
+
+p3 <- ggplot(df) + geom_point(aes(hqaa, total_peaks, shape = Name, col = Name)) +
+    scale_shape_manual(values=1:25) + scale_x_continuous(labels=scales::unit_format(unit = "M", scale=1e-6)) +
+    labs(x = "HQAA", y = "Total Peaks")
+
+p4 <- ggplot(df) + geom_point(aes(tss_enrichment, total_peaks, shape = Name, col = Name)) +
+    scale_shape_manual(values=1:25) +
+    labs(x = "TSS Enrichment", y = "Total Peaks")
+
+
+grid_plot <- cowplot::plot_grid(p1, p2, p3, p4, align = "vh", greedy = F)
+cowplot::save_plot(opts$output, grid_plot, ncol = 2, base_height = 6, base_width = 6, dpi = 300)
+
+# vim:syntax=r

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+[[ $# -ne 1 ]] \
+  && echo "Usage: fetchTSS <genome>" \
+  && echo "Writes to STDOUT."          \
+  && exit
+
+GENOME="$1"
+
+mysql --host=genome-mysql.cse.ucsc.edu --user=genome -D "$GENOME" -e \
+  "SELECT chrom, txStart, txEnd, strand, ensGene.name, name2, value FROM ensGene JOIN ensemblToGeneName WHERE ensGene.name = ensemblToGeneName.name" | awk 'NR!=1' | perl -ne 'chomp; my @line = split /\t/, $_; my $tss = $line[3] eq "+" ? $line[1] : ($line[2] - 1); print("$line[0]\t$tss\t$line[4]\t$line[5]\t$line[6]\n")' \
+  | sort | uniq

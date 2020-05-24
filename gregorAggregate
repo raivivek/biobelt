@@ -1,0 +1,101 @@
+#! /usr/bin/env python3
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# (c) Parker Lab
+#
+# August 20, 2018
+#
+
+""" Aggregate GREGOR's output into a dataframe. Further, calculate the zscore,
+stdev, and log2 fold enrichment from the metadata files.
+
+Prints to STDOUT."""
+
+import os
+import sys
+import argparse
+
+import pandas as pd
+from numpy import log2
+
+
+def exists(path):
+    return os.path.exists(path)
+
+
+def aggregate_output(in_dir, traits=None):
+    """ Compute Z-score and Standard Deviation from the GREGOR output.
+
+    The standard deviation is calculated from the columns of `neighborhoodFile`
+    in the output of GREGOR using the formula below:
+
+        SUM [Col-1 * Col-2 * (1 - Col-2)] ^ 1/2
+
+    The Z-Score thus is:
+
+        (InBed_Index_SNP - ExpectNum_of_InBed_SNP)/Std-Dev
+
+    """
+
+    if (traits is not None) and len(traits) != len(in_dir):
+        print("Number of traits must match the number of GREGOR directories")
+        sys.exit(1)
+
+    if traits is None:
+        iter_ = zip(in_dir, in_dir)
+    else:
+        iter_ = zip(in_dir, traits)
+
+    dfs = []
+
+    for f, t in iter_:
+        stats_summary_path = os.path.join(f, "StatisticSummaryFile.txt")
+        if not exists(stats_summary_path):
+            print(
+                f"Error: 'StatisticSummaryFile.txt' not found for {f}.", file=sys.stderr
+            )
+            return 1
+
+        df = pd.read_csv(stats_summary_path, sep="\t")
+
+        def get_stdev(fname, root=f):
+            neighborhood_file = os.path.join(root, fname, "neighborhoodFile.txt")
+            if not exists(neighborhood_file):
+                print(
+                    f"Error: 'neighborhoodFile.txt' not found for {fname}.",
+                    file=sys.stderr,
+                )
+                return None
+
+            nf = pd.read_csv(neighborhood_file, sep="\t", header=None, skiprows=1)
+            stdev = sum(nf[0] * nf[1] * (1 - nf[1])) ** 0.5
+            return stdev
+
+        df["foldEnrichment"] = df["InBed_Index_SNP"] / df["ExpectNum_of_InBed_SNP"]
+        df["Stdev"] = df["Bed_File"].apply(get_stdev)
+        df["Zscore"] = (df["InBed_Index_SNP"] - df["ExpectNum_of_InBed_SNP"]) / df[
+            "Stdev"
+        ]
+        df["Bed_File"] = df["Bed_File"].apply(lambda x: os.path.splitext(x)[0])
+        df["Trait"] = t
+
+        dfs.append(df)
+
+    return pd.concat(dfs)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("in_dir", nargs="+", help="Path to GREGOR output directory.")
+    parser.add_argument("--traits", nargs="+", help="Ordered list of trait names.")
+    parser.add_argument("-o", "--output", help="Save output to file.")
+
+    args = parser.parse_args()
+
+    result = aggregate_output(args.in_dir, args.traits)
+
+    if args.output:
+        result.to_csv(args.output, index=False, na_rep="NA", header=True, sep="\t")
+    else:
+        print(result.to_string(index=False))

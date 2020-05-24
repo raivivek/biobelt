@@ -1,0 +1,43 @@
+#! /bin/bash
+
+set -euo pipefail
+
+[[ -z $* ]] && { echo "Supply BAM file and output dir."; exit 1; }
+[[ $# -ne 2 ]] && { echo "Usage: quick_call_macs2 <BAM> <out-dir>"; exit 1; }
+
+[[ ! -f "$1" ]] && { echo "BAM file not found"; exit 1; }
+
+say() {
+  echo "$@" 2> /dev/stderr
+}
+
+tmp_dir=$(mktemp -d --tmpdir=/localscratch)
+name=$(basename -s .bam $1)
+
+say "Converting to bed.."
+bedtools bamtobed -i "$1" > "$tmp_dir/$name.bed"
+
+say "Calling peaks (for human only).."
+say "Params: -f BED -g hs --nomodel --seed 2018 --shift -100 --extsize 200 --SPMR -B --broad --keep-dup all"
+
+macs2 callpeak \
+  --outdir $2 \
+  -t $tmp_dir/$name.bed \
+  -n $name\
+  -f BED \
+  -g hs \
+  --nomodel \
+  --shift -100 \
+  --extsize 200 \
+  --seed 2018 \
+  -B \
+  --broad \
+  --keep-dup all \
+  --SPMR \
+  &> $2/$name.macs2.log
+
+say "Compressing files.."
+pigz $2/${name}_treat_pileup.bdg
+pigz $2/${name}_control_lambda.bdg
+
+say "Done."
