@@ -1,0 +1,168 @@
+#! /usr/bin/env Rscript
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPL-3
+#
+#
+
+doc <- "
+  Compute (and plot) the odds of overlap between Cicero generated co-accessible
+peak pairs and three-dimensional looping data from chromosome conformation
+capture methods such as Hi-C, ChIA-PET, pcHi-C.
+
+The input files contains three (3) columns formatted as follows:
+
+    chrA_startA_endA	chrB_startB_endB	score
+
+The score column is only needed for the <cicero> file. The second <hic> file
+only contains the first two columns (extra columns are ignored).
+
+Usage: PROGRAM <cicero> <hic> <out>
+
+Options:
+  <cicero>      Cicero connections
+  <hic>         Hi-C connections
+  <out>         Output plot
+"
+
+opts <- docopt::docopt(doc)
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(data.table)
+})
+
+#
+# Given a peak, calculates the mid-point
+#
+calculate_mid <- function(peaks) {
+  tmp <- stringr::str_split(peaks, "_", simplify = T)
+
+  # mid point is START + offset
+  mid <- as.integer(tmp[, 2]) + as.integer((as.integer(tmp[, 3]) - as.integer(tmp[, 2])) / 2)
+  return(mid)
+}
+
+#
+# Given contingency table, calculate odds
+#
+odds <- function(res) {
+  return((res[1] / res[3]) / (res[2] / res[4]))
+}
+
+apply_odds <- function(x) {
+  apply(x, 2, odds)
+}
+
+
+compute_odds <- function(conns, hic_conns, iterations = 100) {
+  # Setup following bins:
+  # 25-50, 50-75, 75-100, 100-200, >200
+  cicero_dist_quantiles <- c(seq(25, 100, 25), 200, Inf)
+
+  # Setup following threshold bins:
+  # 0 - 0.05, 0.05 - 0.10, 0.10 - 0.15, 0.15 - 0.20, > 0.20
+  ranges_ <- data.frame(
+    start = c(0, 0.05, 0.10, 0.15, 0.20),
+    end = c(0.05, 0.10, 0.15, 0.20, 1)
+  )
+
+  results <- list()
+  for (i in seq(1, (length(cicero_dist_quantiles) - 1))) {
+
+    # Restrict to the specific distance bin
+    low_r <- cicero_dist_quantiles[i] * 1000
+    high_r <- cicero_dist_quantiles[i + 1] * 1000
+    conns_ <- conns[distance < high_r & distance >= low_r, ]
+
+    # Get overlapping peak-pairs
+    conns_$in_hic <- cicero::compare_connections(conns_, hic_conns)
+
+    message("Calculating odds..")
+
+    # Calculate odds for each threshold bin
+    results[[i]] <- sapply(seq(1, length(ranges_$start)), function(x) {
+      low_coaccess <- ranges_[x, 1]
+      high_coaccess <- ranges_[x, 2]
+
+      ## Sample multiple times to get a stable value?
+      tmp_res <- list()
+      for (i in 1:iterations) {
+        gt0_conns <- conns_[coaccess > low_coaccess & coaccess < high_coaccess, ]
+        lt0_conns <- conns_[coaccess < 0, ]
+
+        sample_num <- min(nrow(gt0_conns), nrow(lt0_conns))
+
+        gt0_conns <- gt0_conns[, .SD[sample(.N, sample_num)]]
+        lt0_conns <- lt0_conns[, .SD[sample(.N, sample_num)]]
+
+        tmp_res[[i]] <- list(
+          coaccess_hic = nrow(gt0_conns[in_hic == T, ]),
+          nocoaccess_hic = nrow(lt0_conns[in_hic == T, ]),
+          coaccess_nohic = nrow(gt0_conns[in_hic == F, ]),
+          nocoaccess_nohic = nrow(lt0_conns[in_hic == F, ])
+        )
+      }
+      tmp_res <- bind_rows(tmp_res) %>% colSums()
+      return(tmp_res / iterations)
+    })
+  }
+
+}
+
+if (sys.nframe() == 0) {
+  conns <- data.table::fread(opts$cicero,
+    header = F,
+    col.names = c("Peak1", "Peak2", "coaccess")
+  )
+
+  # Remove NAs from the co-access score otherwise `compare_connections` throws error
+  conns <- cicero_conns[!is.na(coaccess), ]
+  conns$distance <- calculate_mid(cicero_conns$Peak2) - calculate_mid(cicero_conns$Peak1)
+
+  # Remove pairs with distance < 0 as they are just opposite of a peak-pair already present
+  conns <- conns[distance >= 0, ]
+
+  hic_conns <- data.table::fread(opts$hic, header = F)[, 1:2]
+  colnames(hic_conns) <- c("Peak1", "Peak2")
+
+  # Set co-accessibility score to 1 to treat all connections equally
+  hic_conns$coaccess <- 1
+  hic_conns$distance <- calculate_mid(hic_conns$Peak2) - calculate_mid(hic_conns$Peak1)
+
+  odds_res <- compute_odds(conns, hic_conns)
+
+  # Compile results below
+  df <- as.data.frame(sapply(odds_res, apply_odds))
+
+  # Setup plot
+  bin_labs <- sapply(1:(length(cicero_dist_quantiles) - 1), function(i) {
+    if (cicero_dist_quantiles[i + 1] == Inf) {
+      return(glue::glue(">{cicero_dist_quantiles[i]}"))
+    }
+    return(glue::glue("{cicero_dist_quantiles[i]}-{cicero_dist_quantiles[i+1]}"))
+  })
+
+  colnames(df) <- bin_labs
+  df$Threshold <- glue::glue("{ranges_$start}-{ranges_$end}")
+
+  h <- pivot_longer(df, -Threshold)
+  h$name <- factor(h$name, levels = bin_labs, ordered = T)
+  h$Threshold <- factor(h$Threshold, levels = glue::glue("{ranges_$start}-{ranges_$end}"), ordered = T)
+
+  plot <- ggplot(h, aes(name, value, fill = Threshold, col = Threshold, group = Threshold)) +
+    geom_point() +
+    geom_line() +
+    geom_hline(yintercept = 1, linetype = "dashed") +
+    cowplot::theme_cowplot() +
+    labs(x = "Distance bin (kb)", y = "Odds", fill = "Threshold", col = "Threshold") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  message("Saving plot and plot..")
+
+  dir.create(basename(opts$out), showWarnings = F, recursive = T)
+
+  saveRDS(file = paste0(opts$out, ".rds"), h)
+  save_plot(plot, file = opts$out, base_width = 5, base_height = 2, dpi = 300)
+}

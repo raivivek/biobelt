@@ -1,0 +1,69 @@
+#! /usr/bin/env Rscript
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPL-3
+#
+#
+
+doc <- "
+  ciceroFilter.
+
+  Provides a few options to filter cicero connections output.
+
+  chrA_startA_endA   chrB_startB_endB    score
+
+  Usage: ciceroFilter [--keeppair] [--keepna] [--threshold=T] <cicero> <output>
+
+  Options:
+  <cicero>      Cicero connections
+  <output>      Output file
+  --keeppair    Cicero outputs peak-pairs in both directions (A-B, B-A), keep as is. [default: False]
+  --keepna      Keep peak-pairs with NA/invalid score [default: False]
+  --threshold=T Threshold to use for filtering peak-pairs
+"
+
+opts <- docopt::docopt(doc)
+
+conns <- data.table::fread(opts$cicero,
+  header = F,
+  col.names = c("Peak1", "Peak2", "coaccess")
+)
+
+write(glue::glue("Found {nrow(conns)} peak-pairs.."), stdout())
+
+#
+# Given a peak, calculates the mid-point
+#
+calculate_mid <- function(peaks) {
+  tmp <- stringr::str_split(peaks, "_", simplify = T)
+
+  # mid point is START + offset
+  mid <- as.integer(tmp[, 2]) + as.integer((as.integer(tmp[, 3]) - as.integer(tmp[, 2])) / 2)
+  return(mid)
+}
+
+# Remove NAs from the co-access score otherwise `compare_connections` throws error
+if (!opts$keepna) {
+  conns <- conns[!is.na(coaccess), ]
+}
+
+if (!opts$keeppair) {
+  conns$distance <- calculate_mid(conns$Peak2) - calculate_mid(conns$Peak1)
+  conns <- conns[distance > 0, ]
+}
+
+if (!is.null(opts$threshold)) {
+  threshold <- as.numeric(opts$threshold)
+  if (threshold < -1 | threshold > 1) {
+    stop("Error: Specify threshold between -1 to 1. Exit.")
+  }
+
+  conns <- conns[coaccess > threshold, ]
+}
+
+write(glue::glue("Left with {nrow(conns)} peak-pairs.."), stderr())
+
+dir.create(dirname(opts$output), recursive = T, showWarnings = F)
+data.table::fwrite(conns[, 1:3], file = opts$output, quote = F, row.names = F,
+  col.names = F, sep = "\t")
