@@ -1,0 +1,14 @@
+#! /bin/bash
+
+PROG=$(basename $0)
+[[ -z "$1" ]] && echo "usage: $PROG <fastq>" && exit 1;
+
+UTIL=cat
+
+$(gzip -t $1 &> /dev/null)
+if [[ $? -eq 0 ]]; then
+  UTIL=zcat
+fi
+
+$UTIL "$1" | \
+  awk 'NR%4 == 2 {lengths[length($0)]++} END {for (l in lengths) {print l, lengths[l]}}'

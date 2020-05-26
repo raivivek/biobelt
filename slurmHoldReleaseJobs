@@ -8,10 +8,10 @@
 
 usage()
 {
-  echo "Usage: $(basename $0) user-name action"
-  echo "       If action starts with h or H then hold jobs."
-  echo "       If action starts with r or R then release jobs."
-  echo "       Requires sudo if user running script is different than user whose jobs are to be held or released."
+  echo "Usage: $(basename "$0") user action"
+  echo "  If action starts with h or H then hold jobs."
+  echo "  If action starts with r or R then release jobs."
+  echo "  Requires sudo if user running script is different than user whose jobs are to be updated."
 }
 
 user=${1}
@@ -52,7 +52,7 @@ esac
 jobCount=0
 while read -r jobid
 do
-  if [[ $jobid =~ '\[' ]]; then
+  if [[ $jobid =~ \[ ]]; then
     # This is probably for a job array. Get the array id without the range
     # of array elements.
     jobid=${jobid%%_*}

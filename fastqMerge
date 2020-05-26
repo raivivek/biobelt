@@ -114,9 +114,7 @@ sub main {
 		}
 
 		sleep(1);
-
 	}
-
 }
 
 # end

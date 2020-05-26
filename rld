@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#
+# rld -- recursively list directory, to show permissions at each
+# component of the given or current directory's absolute path
+#
+
+set -e  # exit upon any error
+
+DIR=${1:-.}
+
+cd $DIR
+
+path=''
+for pc in $(/bin/pwd | sed 's@/@ @g')
+do
+    path="$path/$pc"
+    ls -ald $path
+done

@@ -1,0 +1,32 @@
+#!/usr/bin/env Rscript
+#
+# Vivek Rai
+# vivekrai@umich.edu
+# GPL-3
+#
+#
+
+'style files.
+Usage:
+  style_files [--style_pkg=<style_guide_pkg>] [--style_fun=<style_guide_fun>] <files>...
+
+Options:
+  --style_pkg=<style_guide_pkg>  Package where the style guide is stored [default: "styler"].
+  --style_fun=<style_guide_fun>  The styling function in style_pkg [default: "tidyverse_style"].
+
+' -> doc
+
+arguments <- docopt::docopt(doc)
+
+if (packageVersion("styler") < "1.3.2") {
+  stop(
+    "Your styler version is outdated. ", 
+    "Please install a newer version of styler with ", 
+    "`install.packages('styler')`. This will get you big speed-ups."
+  )
+} else {
+  styler::style_file(
+    arguments$files, 
+    style = eval(parse(text = paste(arguments$style_pkg, "::", arguments$style_fun)))
+  )
+}

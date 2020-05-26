@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#
+# Produces a sorted report of the true size of all the arguments (or
+# if none are supplied, all the contents of the current directory)
+#
+# The --apparent-size option is important for compressed filesystems
+# like ZFS; normally du won't show you the full amount of storage in
+# use.
+#
+
+things=${*:-"*"}
+du -chsx --apparent-size $things | sort -h
