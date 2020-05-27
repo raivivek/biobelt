@@ -1,5 +1,0 @@
-#! /bin/bash
-
-## Given a file with command on each single-line
-## Create a SLURM TASK Array file
-## (Optionally) Submit to Slurm

@@ -59,7 +59,7 @@ read_peak_file <- function(file) {
 }
 
 
-plotCorrelation <- function(result) {
+plot_correlation <- function(result) {
   write("Converting to RPKM..", stderr())
   rpkm_bamcounts <- to_rpkm(result$counts, result$annotation$Length)
 
@@ -119,7 +119,7 @@ main <- function() {
 
   if(opts$plot != "none") {
     write("Making plots..", stderr())
-    plotCorrelation(results)
+    plot_correlation(results)
   }
 }
 
